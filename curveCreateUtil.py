@@ -9,10 +9,15 @@ def process_user_selection(data):
     shape = data.get("Shape")
     options = data.get("Options", {})
 
+    #forOptionPart_changeToBoolean
+    snap_to_joint = bool(options.get("SnapToJoint"))
+    create_group = bool(options.get("CreateGroup"))
+    create_main_control = bool(options.get("CreateMainControl"))
+
+    #warningPart
     if select_mode is None:
         cmds.warning("⚠️ Please select either 'Hierarchy' or 'Selection'")
         return
-
     if name_mode == "Custom" and not custom_name:
         cmds.warning("⚠️ Please enter a custom name")
         return
@@ -29,10 +34,14 @@ def process_user_selection(data):
         print(f"   {key}: {val}")
     print("===================================\n")
 
-    json_data = json.dumps(data, indent=4)
-    print("JSON Output:\n", json_data)
+    #getFirstName
+    def normalize_creator_result(result):
+        if isinstance(result,(list,tuple)) and result:
+            return result[0]
+        return result
 
-    # ---------------- nested functions ----------------
+#---------------------------------------------------------------------------------#
+    #curvePart
     def circleCreate_curve():
         return cmds.circle(name='circle_ctrl', nr=(0, 1, 0), r=1)[0]
 
@@ -95,24 +104,142 @@ def process_user_selection(data):
 
         print("Created:", eye)
         return eye
-    # ---------------- end nested functions ----------------
+#---------------------------------------------------------------------------------#
+    
+    #heirachyAndSelectPart
+    def collect_joint_list(mode):
+        if mode == "Selection":
+            sels = cmds.ls(selection=True, long=False) or []
+            joints = [s for s in sels if cmds.nodeType(s) == "joint"]
+            return joints
 
-    curve_name = None
+        elif mode == "Hierarchy":
+            sels = cmds.ls(selection=True, long=False) or []
+            result = []
 
-    if shape == 'Circle':
-        curve_name = circleCreate_curve()
-    elif shape == 'Cube':
-        curve_name = cubeCreate_curve()
-    elif shape == 'Eye':
-        curve_name = eyeCreate_curve()
-    else:
-        cmds.warning(f"❌ Please select shape type")
+            def walk(node):
+                if cmds.nodeType(node) != "joint":
+                    return
+                result.append(node)
+                children = cmds.listRelatives(node, children=True, type="joint", fullPath=False) or []
+                for c in children:
+                    walk(c)
+
+            for s in sels:
+                walk(s)
+
+            seen = set()
+            ordered = []
+            for j in result:
+                if j not in seen:
+                    ordered.append(j)
+                    seen.add(j)
+            return ordered
+
+        else:
+            return []
+
+
+    #Name
+    def name(base, idx = None, use_match_joint=False):
+        if use_match_joint:
+            return base
+        else:
+            if idx is None:
+                return base
+            return f"{base}_{idx:04d}"
+
+    #snapPart
+    def snap_transform_to_target(transform, target):
+        try:
+            mat = cmds.xform(target, q=True, ws=True, matrix=True)
+            cmds.xform(transform, ws=True, matrix=mat)
+        except Exception as e:
+            try:
+                t = cmds.xform(target, q=True, ws=True, translation=True)
+                rot = cmds.xform(target, q=True, ws=True, rotation=True)
+                cmds.xform(transform, ws=True, translation=t)
+                cmds.xform(transform, ws=True, rotation=rot)
+            except:
+                cmds.warning(f"Cannot snap {transform} to {target}: {e}")
+
+    joints = collect_joint_list(select_mode)
+    if not joints and not create_main_control:
+        cmds.warning("No Joint found for selected mode.")
         return
 
-    if curve_name:
-        print(f"✅ Created curve: {curve_name}")
-        if name_mode == "Custom" and custom_name:
-            curve_name = cmds.rename(curve_name, custom_name)
-            print(f"🔤 Rename to {curve_name}")
+    create_control = []
+    index = 1
 
-    return curve_name
+    for joint in joints:
+        if name_mode == "Match Joint Name":
+            ctrl_name = name(joint, use_match_joint=True)
+        else:
+            ctrl_name = name(custom_name, idx = index, use_match_joint = False)
+
+        #shapeSelected
+        if shape == 'Circle':
+            new_ctrl = circleCreate_curve()
+        elif shape == 'Cube':
+            new_ctrl = cubeCreate_curve()
+        elif shape == 'Eye':
+            new_ctrl = eyeCreate_curve()
+        else:
+            cmds.warning(f"❌ Please select shape type")
+            return
+
+        if isinstance(new_ctrl, (list, tuple)):
+            ctrl = normalize_creator_result(new_ctrl)
+        else:
+            ctrl = new_ctrl
+
+        final_name = ctrl_name
+        if cmds.objExists(final_name):
+            suffix = 1
+            while cmds.objExists(f"{final_name}_{suffix:02d}"):
+                suffix += 1
+            final_name = f"{final_name}_{suffix:02d}"
+
+        try:
+            ctrl = cmds.rename(ctrl, final_name)
+        except Exception:
+            final_name = ctrl
+
+        if snap_to_joint:
+            snap_transform_to_target(ctrl, joint)
+
+        if create_group:
+            grp_name = f"{final_name}_grp"
+            if cmds.objExists(grp_name):
+                gidx = 1
+                while cmds.objExists(f"{grp_name}_{gidx:02d}"):
+                    gidx += 1
+                grp_name = f"{grp_name}_{gidx:02d}"
+            grp = cmds.group(empty = True, name = grp_name)
+            try:
+                cmds.parent(ctrl,grp)
+            except Exception:
+                cmds.warning(f"Failed to parent {ctrl} under {grp}")
+    
+    create_control.append(final_name)
+    index += 1
+
+    main_control = None
+    if create_main_control:
+        mc_name = "main_control_cc"
+        if cmds.objExists(mc_name):
+            midx = 1
+            while cmds.objExists(f"{mc_name}_{midx:02d}"):
+                midx += 1
+            mc_name = f"{mc_name}_{midx:02d}"
+        mc = circleCreate_curve()
+        mc = normalize_creator_result(mc)
+        try:
+            mc = cmds.rename(mc, mc_name)
+        except Exception:
+            mc_name = mc_name
+        main_control = mc_name
+        create_control.append(main_control)
+
+    print("Created controls:", create_control)
+    return create_control
