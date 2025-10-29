@@ -108,39 +108,30 @@ def process_user_selection(data):
     
     #heirachyAndSelectPart
     def collect_joint_list(mode):
+        result = []
+
+        def walk(node):
+            if cmds.nodeType(node) != "joint":
+                return
+            result.append(node)
+            for c in cmds.listRelatives(node, children=True, fullPath=False) or []:
+                walk(c)
+
         if mode == "Selection":
-            sels = cmds.ls(selection=True, long=False) or []
-            joints = [s for s in sels if cmds.nodeType(s) == "joint"]
-            return joints
-
+            for sel in cmds.ls(selection=True, long=False):
+                if cmds.nodeType(sel) == "joint":
+                    result.append(sel)
         elif mode == "Hierarchy":
-            sels = cmds.ls(selection=True, long=False) or []
-            result = []
+            for sel in cmds.ls(selection=True, long=False):
+                walk(sel)
+        return result
 
-            def walk(node):
-                if cmds.nodeType(node) != "joint":
-                    return
-                result.append(node)
-                children = cmds.listRelatives(node, children=True, type="joint", fullPath=False) or []
-                for c in children:
-                    walk(c)
-
-            for s in sels:
-                walk(s)
-
-            seen = set()
-            ordered = []
-            for j in result:
-                if j not in seen:
-                    ordered.append(j)
-                    seen.add(j)
-            return ordered
-
-        else:
-            return []
-
-
+#----------------------------------------------------------------------------------------------------------------------------
     #Name
+
+    def sanitize_name(name):
+        return name.replace('|', '_')
+
     def name(base, idx = None, use_match_joint=False):
         if use_match_joint:
             return base
@@ -149,6 +140,7 @@ def process_user_selection(data):
                 return base
             return f"{base}_{idx:04d}"
 
+#----------------------------------------------------------------------------------------------------------------------------
     #snapPart
     def snap_transform_to_target(transform, target):
         try:
@@ -163,7 +155,10 @@ def process_user_selection(data):
             except:
                 cmds.warning(f"Cannot snap {transform} to {target}: {e}")
 
+#----------------------------------------------------------------------------------------------------------------------------
     joints = collect_joint_list(select_mode)
+    print("Collected joints:", joints) 
+
     if not joints and not create_main_control:
         cmds.warning("No Joint found for selected mode.")
         return
@@ -172,6 +167,10 @@ def process_user_selection(data):
     index = 1
 
     for joint in joints:
+
+        ctrl_name = sanitize_name(joint)
+
+        #nameSelected
         if name_mode == "Match Joint Name":
             ctrl_name = name(joint, use_match_joint=True)
         else:
@@ -188,11 +187,9 @@ def process_user_selection(data):
             cmds.warning(f"❌ Please select shape type")
             return
 
-        if isinstance(new_ctrl, (list, tuple)):
-            ctrl = normalize_creator_result(new_ctrl)
-        else:
-            ctrl = new_ctrl
+        ctrl = normalize_creator_result(new_ctrl)
 
+        #rename
         final_name = ctrl_name
         if cmds.objExists(final_name):
             suffix = 1
@@ -205,9 +202,7 @@ def process_user_selection(data):
         except Exception:
             final_name = ctrl
 
-        if snap_to_joint:
-            snap_transform_to_target(ctrl, joint)
-
+        #option
         if create_group:
             grp_name = f"{final_name}_grp"
             if cmds.objExists(grp_name):
@@ -215,15 +210,38 @@ def process_user_selection(data):
                 while cmds.objExists(f"{grp_name}_{gidx:02d}"):
                     gidx += 1
                 grp_name = f"{grp_name}_{gidx:02d}"
+
             grp = cmds.group(empty = True, name = grp_name)
+
+            t = cmds.xform(joint, q=True, ws=True, translation=True)
+            r = cmds.xform(joint, q=True, ws=True, rotation=True)
+            cmds.xform(grp, ws=True, translation=t, rotation=r)
+
+            if snap_to_joint:
+                cmds.xform(ctrl, ws=True, translation=t, rotation=r)
+
+            else:
+                ctrl_pos = cmds.xform(ctrl, q=True, ws=True, rp=True)
+                cmds.xform(grp, ws=True, piv=ctrl_pos)
+
             try:
                 cmds.parent(ctrl,grp)
             except Exception:
                 cmds.warning(f"Failed to parent {ctrl} under {grp}")
-    
-    create_control.append(final_name)
-    index += 1
 
+            cmds.xform(ctrl, t=(0,0,0), ro=(0,0,0))
+
+        else:
+            if snap_to_joint:
+                snap_transform_to_target(ctrl, joint)
+            else:
+                ctrl_pos = cmds.xform(ctrl, q=True, ws=True, rp=True)
+                cmds.xform(ctrl, ws=True, piv=ctrl_pos)
+    
+        create_control.append(final_name)
+        index += 1
+
+#------------------------------------------------------------------------------------------------------------------------------------------
     main_control = None
     if create_main_control:
         mc_name = "main_control_cc"

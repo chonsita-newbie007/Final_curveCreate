@@ -35,7 +35,7 @@ class CurveCreatorDialog(QtWidgets.QDialog):
 
 		#pngTopPart
 		self.imageTopLabel = QtWidgets.QLabel()
-		self.imagePixmap = QtGui.QPixmap(f'{IMAGE_DIR}/test2.png')
+		self.imagePixmap = QtGui.QPixmap(f'{IMAGE_DIR}/top.png')
 		scaledPixmap = self.imagePixmap.scaled(
 			QtCore.QSize(300,100),
 			QtCore.Qt.KeepAspectRatio,
@@ -323,9 +323,9 @@ class CurveCreatorDialog(QtWidgets.QDialog):
 		self.mainLayout.addStretch()
 
 		
-		#pngTopPart
+		#pngBottonPart
 		self.imagelBottonLabel = QtWidgets.QLabel()
-		self.imagePixmap = QtGui.QPixmap(f'{IMAGE_DIR}/test2.png')
+		self.imagePixmap = QtGui.QPixmap(f'{IMAGE_DIR}/bottom.png')
 		scaledPixmap = self.imagePixmap.scaled(
 			QtCore.QSize(300,100),
 			QtCore.Qt.KeepAspectRatio,
